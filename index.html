@@ -152,18 +152,30 @@
             <!-- Formulario Agregar Canal Uno a Uno -->
             <form onsubmit="addSingleChannel(event)" class="bg-[#0a1329] border border-blue-900/70 rounded-3xl p-4 flex flex-col gap-3 shadow-xl">
                 <h2 class="text-xs font-black text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <i class="fa-solid fa-plus-circle"></i> Agregar Canal Uno a Uno
+                    <i class="fa-solid fa-plus-circle"></i> Elige Categoría y Envía Directo
                 </h2>
 
-                <!-- Selector de Categoría: Solo TV en Vivo o Películas y Series -->
-                <div class="grid grid-cols-2 gap-2">
-                    <button type="button" onclick="setFormCategory('tv')" id="catBtn-tv" class="py-2 px-3 rounded-xl bg-sky-600 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition">
+                <!-- Selector de 5 Categorías para Espectadores y Lista IPTV -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <button type="button" onclick="setFormCategory('tv')" id="catBtn-tv" class="py-2 px-2.5 rounded-xl bg-sky-600 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition">
                         <i class="fa-solid fa-tv"></i>
                         <span>TV en Vivo</span>
                     </button>
-                    <button type="button" onclick="setFormCategory('peliculas')" id="catBtn-peliculas" class="py-2 px-3 rounded-xl bg-slate-900 text-slate-300 text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition">
+                    <button type="button" onclick="setFormCategory('peliculas')" id="catBtn-peliculas" class="py-2 px-2.5 rounded-xl bg-slate-900 text-slate-300 text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition">
                         <i class="fa-solid fa-film"></i>
                         <span>Películas y Series</span>
+                    </button>
+                    <button type="button" onclick="setFormCategory('deportes')" id="catBtn-deportes" class="py-2 px-2.5 rounded-xl bg-slate-900 text-slate-300 text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition">
+                        <i class="fa-solid fa-futbol"></i>
+                        <span>Deportes</span>
+                    </button>
+                    <button type="button" onclick="setFormCategory('novelas')" id="catBtn-novelas" class="py-2 px-2.5 rounded-xl bg-slate-900 text-slate-300 text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition">
+                        <i class="fa-solid fa-heart"></i>
+                        <span>Novelas</span>
+                    </button>
+                    <button type="button" onclick="setFormCategory('247')" id="catBtn-247" class="py-2 px-2.5 rounded-xl bg-slate-900 text-slate-300 text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition col-span-2 sm:col-span-2">
+                        <i class="fa-solid fa-infinity"></i>
+                        <span>TV 24/7 (Bucle Continuo)</span>
                     </button>
                 </div>
 
@@ -171,7 +183,7 @@
                     id="inputChannelTitle"
                     type="text"
                     required
-                    placeholder="Nombre del canal o película (ej: Canal 5 HD)"
+                    placeholder="Nombre del canal, novela, partido o película"
                     class="w-full bg-slate-950 border border-slate-800 focus:border-sky-500 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 outline-none"
                 >
 
@@ -187,16 +199,16 @@
                     type="submit"
                     class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 cursor-pointer transition shadow-lg"
                 >
-                    <i class="fa-solid fa-plus"></i>
-                    <span>Agregar y Sincronizar con Espectadores</span>
+                    <i class="fa-solid fa-paper-plane"></i>
+                    <span>Agregar y Enviar Directo a Espectadores</span>
                 </button>
             </form>
 
-            <!-- Extractor / Selector de Lista M3U (Solo en el Panel Emisor) -->
+            <!-- Extractor / Selector de Lista IPTV M3U -->
             <div class="bg-[#0a1329] border border-blue-900/70 rounded-3xl p-4 flex flex-col gap-3 shadow-xl">
                 <div class="flex items-center justify-between gap-2">
                     <h2 class="text-xs font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> Extraer Canales de Lista M3U
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Agregar Lista IPTV / M3U
                     </h2>
                     <label class="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px] font-bold cursor-pointer flex items-center gap-1 transition">
                         <i class="fa-solid fa-file-arrow-up"></i>
@@ -204,6 +216,9 @@
                         <input type="file" accept=".m3u,.m3u8,.txt" onchange="handleM3uFileUpload(event)" class="hidden">
                     </label>
                 </div>
+                <p class="text-[11px] text-slate-400">
+                    Los canales que agregues desde la lista IPTV irán directo a la categoría seleccionada arriba (<strong id="currentSelectedCatLabel" class="text-sky-300">TV en Vivo</strong>).
+                </p>
 
                 <textarea
                     id="iptvRawInput"
@@ -284,21 +299,31 @@
         const previewVideo = document.getElementById('previewVideo');
         const monitorContainer = document.getElementById('monitorContainer');
 
+        const PANEL_CATS = {
+            tv: { label: 'TV en Vivo', icon: 'fa-tv', badge: 'bg-sky-600', activeBtn: 'bg-sky-600 text-white' },
+            peliculas: { label: 'Películas y Series', icon: 'fa-film', badge: 'bg-violet-600', activeBtn: 'bg-violet-600 text-white' },
+            deportes: { label: 'Deportes', icon: 'fa-futbol', badge: 'bg-emerald-600', activeBtn: 'bg-emerald-600 text-white' },
+            novelas: { label: 'Novelas', icon: 'fa-heart', badge: 'bg-rose-600', activeBtn: 'bg-rose-600 text-white' },
+            '247': { label: 'TV 24/7', icon: 'fa-infinity', badge: 'bg-amber-500 text-slate-950', activeBtn: 'bg-amber-500 text-slate-950' }
+        };
+
+        let noticeTimeout = null;
+
         function showPanelNotice(msg, ms = 2000) {
             const box = document.getElementById('panelNotice');
-            const txt = document.getElementById('panelNoticeText');
-            if (!box || !txt) return;
-            txt.textContent = msg;
+            const text = document.getElementById('panelNoticeText');
+            if (!box || !text) return;
+            text.textContent = msg;
             box.classList.remove('hidden');
-            clearTimeout(window._panelNoticeTimer);
-            window._panelNoticeTimer = setTimeout(() => {
-                box.classList.add('hidden');
-            }, ms);
+            clearTimeout(noticeTimeout);
+            if (ms > 0) {
+                noticeTimeout = setTimeout(() => box.classList.add('hidden'), ms);
+            }
         }
 
         function saveChannels() {
             try {
-                localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify(channels.slice(0, 150)));
+                localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify(channels));
             } catch (e) {}
         }
 
@@ -313,33 +338,53 @@
                         .map((c) => ({
                             title: String(c.title || 'Canal 5'),
                             url: String(c.url).trim(),
-                            category: c.category === 'peliculas' ? 'peliculas' : 'tv'
+                            category: PANEL_CATS[c.category] ? c.category : 'tv'
                         }));
                 }
             } catch (e) {}
         }
 
-        function setFormCategory(cat) {
-            selectedCategory = cat === 'peliculas' ? 'peliculas' : 'tv';
-            ['tv', 'peliculas'].forEach((name) => {
-                const btn = document.getElementById(`catBtn-${name}`);
+        function setFormCategory(catKey) {
+            if (!PANEL_CATS[catKey]) return;
+            selectedCategory = catKey;
+            const catLabelEl = document.getElementById('currentSelectedCatLabel');
+            if (catLabelEl) catLabelEl.textContent = PANEL_CATS[catKey].label;
+
+            Object.keys(PANEL_CATS).forEach((key) => {
+                const btn = document.getElementById(`catBtn-${key}`);
                 if (!btn) return;
-                btn.className = name === selectedCategory
-                    ? (name === 'peliculas'
-                        ? 'py-2 px-3 rounded-xl bg-violet-600 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition'
-                        : 'py-2 px-3 rounded-xl bg-sky-600 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition')
-                    : 'py-2 px-3 rounded-xl bg-slate-900 text-slate-300 text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition';
+                const base = key === '247'
+                    ? 'py-2 px-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition col-span-2 sm:col-span-2'
+                    : 'py-2 px-2.5 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition';
+                btn.className = key === catKey
+                    ? `${base} ${PANEL_CATS[key].activeBtn} shadow-lg`
+                    : `${base} bg-slate-900 hover:bg-slate-800 text-slate-300`;
             });
         }
 
         function togglePanelFullscreen() {
-            isPanelFs = !isPanelFs;
-            if (monitorContainer) {
-                monitorContainer.classList.toggle('tv-expanded-fs', isPanelFs);
-            }
+            if (!monitorContainer) return;
             const icon = document.getElementById('panelFsIcon');
-            if (icon) {
-                icon.className = isPanelFs ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+            const isNative = Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+
+            if (!isNative && !isPanelFs) {
+                if (monitorContainer.requestFullscreen) {
+                    monitorContainer.requestFullscreen().catch(() => {
+                        isPanelFs = true;
+                        monitorContainer.classList.add('tv-expanded-fs');
+                    });
+                } else {
+                    isPanelFs = true;
+                    monitorContainer.classList.add('tv-expanded-fs');
+                }
+                if (icon) icon.className = 'fa-solid fa-compress';
+            } else {
+                if (isNative && document.exitFullscreen) {
+                    document.exitFullscreen().catch(() => {});
+                }
+                isPanelFs = false;
+                monitorContainer.classList.remove('tv-expanded-fs');
+                if (icon) icon.className = 'fa-solid fa-expand';
             }
         }
 
@@ -347,23 +392,21 @@
             if (!channels.length) return;
             activePreviewIndex = ((idx % channels.length) + channels.length) % channels.length;
             const item = channels[activePreviewIndex];
-
             const titleEl = document.getElementById('previewTitle');
             if (titleEl) titleEl.textContent = item.title;
 
             if (previewHls) {
-                previewHls.destroy();
+                try { previewHls.destroy(); } catch (e) {}
                 previewHls = null;
             }
 
             if (previewVideo) {
-                const isHlsUrl = /\.m3u8(\?|$)/i.test(item.url) || !/\.(mp4|webm|ogg|m4v)(\?|$)/i.test(item.url);
-                if (isHlsUrl && typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    previewHls = new Hls({
-                        enableWorker: true,
-                        maxBufferLength: 30,
-                        maxMaxBufferLength: 60
-                    });
+                previewVideo.pause();
+                previewVideo.removeAttribute('src');
+                previewVideo.load();
+
+                if (/\.m3u8(\?|$)/i.test(item.url) && typeof Hls !== 'undefined' && Hls.isSupported()) {
+                    previewHls = new Hls({ enableWorker: true, lowLatencyMode: true });
                     previewHls.loadSource(item.url);
                     previewHls.attachMedia(previewVideo);
                     previewHls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -371,25 +414,26 @@
                     });
                 } else {
                     previewVideo.src = item.url;
+                    previewVideo.loop = (item.category === '247');
                     previewVideo.load();
                     previewVideo.play().catch(() => {});
                 }
             }
 
-            renderChannelList();
+            renderSavedChannelsList();
         }
 
-        function renderChannelList() {
+        function renderSavedChannelsList() {
             const listEl = document.getElementById('savedChannelsList');
             const countEl = document.getElementById('savedCountText');
-            if (countEl) countEl.textContent = String(channels.length);
+            if (countEl) countEl.textContent = `${channels.length}`;
             if (!listEl) return;
 
             listEl.innerHTML = '';
             if (!channels.length) {
                 listEl.innerHTML = `
-                    <div class="py-6 px-3 rounded-2xl border border-dashed border-slate-800 text-center text-xs text-slate-400">
-                        No hay canales agregados todavía. Agrega uno arriba o extrae desde una lista M3U.
+                    <div class="p-4 rounded-2xl border border-dashed border-slate-800 text-center text-xs text-slate-500">
+                        No hay canales guardados todavía. Agrega uno o sube una lista IPTV.
                     </div>
                 `;
                 return;
@@ -398,7 +442,7 @@
             const frag = document.createDocumentFragment();
             channels.forEach((ch, idx) => {
                 const isCurrent = idx === activePreviewIndex;
-                const isMovie = ch.category === 'peliculas';
+                const catInfo = PANEL_CATS[ch.category] || PANEL_CATS.tv;
                 const row = document.createElement('div');
                 row.className = `p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
                     isCurrent
@@ -407,12 +451,12 @@
                 }`;
                 row.innerHTML = `
                     <button type="button" onclick="playPreviewAt(${idx})" class="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer">
-                        <span class="w-7 h-7 rounded-lg ${isMovie ? 'bg-violet-600' : 'bg-sky-600'} text-white flex items-center justify-center shrink-0">
-                            <i class="fa-solid ${isMovie ? 'fa-film' : 'fa-tv'} text-[11px]"></i>
+                        <span class="w-7 h-7 rounded-lg ${catInfo.badge} text-white flex items-center justify-center shrink-0">
+                            <i class="fa-solid ${catInfo.icon} text-[11px]"></i>
                         </span>
                         <div class="min-w-0 flex-1">
                             <p class="text-xs font-extrabold truncate">${ch.title}</p>
-                            <p class="text-[10px] text-slate-400 truncate">${isMovie ? 'Películas y Series' : 'TV en Vivo'}</p>
+                            <p class="text-[10px] text-slate-400 truncate">${catInfo.label}</p>
                         </div>
                     </button>
                     <button type="button" onclick="deleteSavedChannel(${idx})" title="Borrar este canal" class="px-2.5 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white text-[11px] font-bold shrink-0 cursor-pointer transition">
@@ -424,191 +468,168 @@
             listEl.appendChild(frag);
         }
 
+        function emitMqttState(notifyUser = false) {
+            const activeItem = channels[activePreviewIndex] || channels[0] || null;
+            const payload = {
+                action: channels.length === 0 ? 'clear_all' : 'sync_playlist',
+                timestamp: Date.now(),
+                title: activeItem ? activeItem.title : '',
+                url: activeItem ? activeItem.url : '',
+                category: activeItem ? activeItem.category : 'tv',
+                channels: channels.slice(0, 200)
+            };
+
+            const jsonStr = JSON.stringify(payload);
+            try {
+                localStorage.setItem('dnplus_live_signal', jsonStr);
+            } catch (e) {}
+
+            mqttClients.forEach((client) => {
+                if (client && client.connected) {
+                    MQTT_TOPICS.forEach((topic) => {
+                        try {
+                            client.publish(topic, jsonStr, { retain: true, qos: 1 });
+                        } catch (e) {}
+                    });
+                }
+            });
+
+            if (notifyUser) {
+                showPanelNotice('Enviado a todos los espectadores', 1800);
+            }
+        }
+
         function addSingleChannel(ev) {
             ev.preventDefault();
             const titleInput = document.getElementById('inputChannelTitle');
             const urlInput = document.getElementById('inputChannelUrl');
-            const title = (titleInput?.value || '').trim();
-            const url = (urlInput?.value || '').trim();
+            const title = String(titleInput?.value || '').trim();
+            const url = String(urlInput?.value || '').trim();
             if (!title || !url) return;
 
-            const existingIdx = channels.findIndex((c) => c.url === url);
-            if (existingIdx >= 0) {
-                channels[existingIdx].title = title;
-                channels[existingIdx].category = selectedCategory;
-                activePreviewIndex = existingIdx;
-            } else {
-                channels.push({ title, url, category: selectedCategory });
-                activePreviewIndex = channels.length - 1;
-            }
+            channels.unshift({
+                title,
+                url,
+                category: selectedCategory
+            });
 
-            saveChannels();
             if (titleInput) titleInput.value = '';
             if (urlInput) urlInput.value = '';
-            playPreviewAt(activePreviewIndex);
+
+            saveChannels();
+            playPreviewAt(0);
             emitMqttState(true);
-            showPanelNotice(`Agregado y enviado: ${title}`);
         }
 
         function deleteSavedChannel(idx) {
-            if (idx < 0 || idx >= channels.length) return;
             channels.splice(idx, 1);
             if (activePreviewIndex >= channels.length) {
                 activePreviewIndex = Math.max(0, channels.length - 1);
             }
             saveChannels();
-            renderChannelList();
-            if (channels.length === 0) {
-                clearAllSavedChannels();
+            renderSavedChannelsList();
+            if (channels.length > 0) {
+                playPreviewAt(activePreviewIndex);
             } else {
-                emitMqttState(true);
-                showPanelNotice('Canal borrado y lista actualizada');
+                const titleEl = document.getElementById('previewTitle');
+                if (titleEl) titleEl.textContent = 'Sin canal seleccionado';
+                if (previewVideo) {
+                    previewVideo.pause();
+                    previewVideo.removeAttribute('src');
+                    previewVideo.load();
+                }
             }
+            emitMqttState(true);
         }
 
         function clearAllSavedChannels() {
             channels = [];
             activePreviewIndex = 0;
             saveChannels();
-            if (previewHls) {
-                previewHls.destroy();
-                previewHls = null;
-            }
+            renderSavedChannelsList();
+            const titleEl = document.getElementById('previewTitle');
+            if (titleEl) titleEl.textContent = 'Sin canal seleccionado';
             if (previewVideo) {
                 previewVideo.pause();
                 previewVideo.removeAttribute('src');
                 previewVideo.load();
             }
-            const titleEl = document.getElementById('previewTitle');
-            if (titleEl) titleEl.textContent = 'Sin canal seleccionado';
-            renderChannelList();
-
-            const clearPayload = JSON.stringify({
-                mode: 'playlist',
-                clearAll: true,
-                title: 'Lista vacía',
-                url: '',
-                playlist: [],
-                timestamp: Date.now()
-            });
-
-            try {
-                localStorage.setItem('dnplus_live_signal', clearPayload);
-                localStorage.setItem('dnplus_live_playlist', '[]');
-            } catch (e) {}
-
-            mqttClients.forEach((client) => {
-                if (client && client.connected) {
-                    MQTT_TOPICS.forEach((t) => {
-                        try { client.publish(t, clearPayload, { qos: 1, retain: true }); } catch (e) {}
-                    });
-                }
-            });
-            showPanelNotice('Todos los canales fueron borrados');
+            emitMqttState(true);
+            showPanelNotice('Todos los canales borrados', 1800);
         }
 
-        function parseM3uLines(raw) {
-            const lines = String(raw || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-            const items = [];
+        function parseM3uText(rawText) {
+            const lines = String(rawText || '').split(/\r?\n/);
+            const results = [];
             let pendingTitle = '';
-            for (const line of lines) {
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
                 if (line.startsWith('#EXTINF')) {
                     const commaIdx = line.lastIndexOf(',');
-                    pendingTitle = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : '';
-                } else if (!line.startsWith('#') && /^https?:\/\//i.test(line)) {
-                    items.push({
-                        title: pendingTitle || `Canal ${items.length + 1}`,
+                    pendingTitle = commaIdx !== -1 ? line.slice(commaIdx + 1).trim() : 'Canal IPTV';
+                } else if (/^https?:\/\//i.test(line)) {
+                    results.push({
+                        title: pendingTitle || `Canal ${results.length + 1}`,
                         url: line
                     });
                     pendingTitle = '';
                 }
             }
-            return items;
+            return results;
         }
 
-        async function resolveM3uContent(raw) {
-            let parsed = [];
-            if (/^https?:\/\/\S+$/i.test(raw)) {
+        async function resolveRawIptvContent() {
+            const raw = String(document.getElementById('iptvRawInput')?.value || '').trim();
+            if (!raw) return '';
+            if (/^https?:\/\//i.test(raw) && !raw.includes('\n')) {
+                showPanelNotice('Descargando lista M3U...', 2000);
                 try {
                     const res = await fetch(raw);
-                    if (res.ok) parsed = parseM3uLines(await res.text());
+                    if (res.ok) return await res.text();
                 } catch (e) {}
-                if (!parsed.length) {
-                    try {
-                        const proxyRes = await fetch('https://api.allorigins.win/raw?url=' + encodeURIComponent(raw));
-                        if (proxyRes.ok) parsed = parseM3uLines(await proxyRes.text());
-                    } catch (e) {}
-                }
-                if (!parsed.length && /\.(m3u8|mp4)(\?|$)/i.test(raw)) {
-                    parsed = [{ title: 'Señal Directa', url: raw }];
-                }
-            } else {
-                parsed = parseM3uLines(raw);
+                try {
+                    const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(raw)}`);
+                    if (proxyRes.ok) return await proxyRes.text();
+                } catch (e) {}
             }
-            return parsed;
-        }
-
-        function handleM3uFileUpload(ev) {
-            const file = ev.target.files?.[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = () => {
-                const area = document.getElementById('iptvRawInput');
-                if (area) area.value = String(reader.result || '');
-                extractM3uChannels();
-            };
-            reader.readAsText(file);
+            return raw;
         }
 
         async function extractM3uChannels() {
-            const raw = (document.getElementById('iptvRawInput')?.value || '').trim();
-            if (!raw) {
-                showPanelNotice('Pega un enlace .m3u o sube un archivo primero');
-                return;
-            }
-            showPanelNotice('Extrayendo canales de la lista M3U...');
-            const parsed = await resolveM3uContent(raw);
-            if (!parsed.length) {
-                showPanelNotice('No se pudo leer el enlace (descarga el .m3u y súbelo)');
-                return;
-            }
-            extractedItems = parsed;
-            const searchEl = document.getElementById('m3uSearchInput');
-            if (searchEl) searchEl.value = '';
-            document.getElementById('m3uExtractorBox')?.classList.remove('hidden');
+            const text = await resolveRawIptvContent();
+            extractedItems = parseM3uText(text);
+            const box = document.getElementById('m3uExtractorBox');
+            const countEl = document.getElementById('extractedTotalCount');
+            if (countEl) countEl.textContent = `${extractedItems.length}`;
+            if (box) box.classList.remove('hidden');
             renderExtractedM3uList();
-            showPanelNotice(`${parsed.length} canales extraídos`);
-        }
-
-        function closeExtractorBox() {
-            document.getElementById('m3uExtractorBox')?.classList.add('hidden');
         }
 
         function renderExtractedM3uList() {
             const listEl = document.getElementById('extractedM3uList');
-            const countEl = document.getElementById('extractedTotalCount');
-            const query = (document.getElementById('m3uSearchInput')?.value || '').trim().toLowerCase();
-            if (countEl) countEl.textContent = String(extractedItems.length);
+            const query = String(document.getElementById('m3uSearchInput')?.value || '').toLowerCase().trim();
             if (!listEl) return;
 
-            const existingUrls = new Set(channels.map((c) => c.url));
-            const filtered = extractedItems
+            listEl.innerHTML = '';
+            const matches = extractedItems
                 .map((item, idx) => ({ item, idx }))
                 .filter(({ item }) => !query || item.title.toLowerCase().includes(query));
 
-            listEl.innerHTML = '';
+            if (!matches.length) {
+                listEl.innerHTML = `<p class="text-xs text-slate-500 text-center py-3">No se encontraron canales con ese nombre.</p>`;
+                return;
+            }
+
             const frag = document.createDocumentFragment();
-            filtered.slice(0, 250).forEach(({ item, idx }) => {
-                const isAdded = existingUrls.has(item.url);
+            matches.slice(0, 120).forEach(({ item, idx }) => {
                 const row = document.createElement('div');
                 row.className = 'p-2 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2';
                 row.innerHTML = `
-                    <div class="min-w-0 flex-1">
-                        <p class="text-[11px] font-extrabold text-white truncate">${item.title}</p>
-                        <p class="text-[9px] font-mono text-slate-400 truncate">${item.url}</p>
-                    </div>
-                    <button type="button" onclick="pickExtractedChannel(${idx})" class="px-2.5 py-1.5 rounded-lg ${isAdded ? 'bg-emerald-700/40 text-emerald-200 border border-emerald-500/40' : 'bg-sky-600 hover:bg-sky-500 text-white'} text-[10px] font-black shrink-0 cursor-pointer transition">
-                        ${isAdded ? 'Agregado ✓' : '+ Agregar'}
+                    <span class="text-xs font-bold text-slate-200 truncate flex-1">${item.title}</span>
+                    <button type="button" onclick="addExtractedChannelAt(${idx})" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black shrink-0 cursor-pointer transition">
+                        + Agregar
                     </button>
                 `;
                 frag.appendChild(row);
@@ -616,114 +637,95 @@
             listEl.appendChild(frag);
         }
 
-        function pickExtractedChannel(idx) {
+        function addExtractedChannelAt(idx) {
             const item = extractedItems[idx];
             if (!item) return;
-            const existingIdx = channels.findIndex((c) => c.url === item.url);
-            if (existingIdx >= 0) {
-                channels[existingIdx].title = item.title;
-                channels[existingIdx].category = selectedCategory;
-                activePreviewIndex = existingIdx;
-            } else {
-                channels.push({ title: item.title, url: item.url, category: selectedCategory });
-                activePreviewIndex = channels.length - 1;
-            }
+            channels.unshift({
+                title: item.title,
+                url: item.url,
+                category: selectedCategory
+            });
             saveChannels();
-            renderExtractedM3uList();
-            playPreviewAt(activePreviewIndex);
+            playPreviewAt(0);
             emitMqttState(true);
-            showPanelNotice(`Agregado: ${item.title}`);
         }
 
         async function importAllIptvChannels() {
-            const raw = (document.getElementById('iptvRawInput')?.value || '').trim();
-            if (!raw) return;
-            const parsed = await resolveM3uContent(raw);
+            const text = await resolveRawIptvContent();
+            const parsed = parseM3uText(text);
             if (!parsed.length) {
-                showPanelNotice('No se encontraron enlaces válidos');
+                showPanelNotice('No se encontraron enlaces válidos', 1800);
                 return;
             }
-            const existingUrls = new Set(channels.map((c) => c.url));
-            const added = parsed
-                .filter((c) => !existingUrls.has(c.url))
-                .map((c) => ({ title: c.title, url: c.url, category: selectedCategory }));
-            channels = channels.concat(added).slice(0, 150);
+            const formatted = parsed.slice(0, 150).map((item) => ({
+                title: item.title,
+                url: item.url,
+                category: selectedCategory
+            }));
+            channels = [...formatted, ...channels];
             saveChannels();
-            renderChannelList();
-            if (channels.length > 0) playPreviewAt(0);
+            playPreviewAt(0);
             emitMqttState(true);
-            showPanelNotice(`Se sumaron ${added.length} canales`);
         }
 
-        function emitMqttState(notifyUser = false) {
-            if (!channels.length) return;
-            const current = channels[activePreviewIndex] || channels[0];
-            const payloadObj = {
-                mode: 'playlist',
-                clearAll: false,
-                title: current.title,
-                url: current.url,
-                streamUrl: current.url,
-                category: current.category,
-                playlist: channels.slice(0, 150),
-                timestamp: Date.now()
+        function handleM3uFileUpload(ev) {
+            const file = ev.target.files?.[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const input = document.getElementById('iptvRawInput');
+                if (input) input.value = String(e.target?.result || '');
+                extractM3uChannels();
             };
-            const payloadStr = JSON.stringify(payloadObj);
-
-            try {
-                localStorage.setItem('dnplus_live_signal', payloadStr);
-                localStorage.setItem('dnplus_live_playlist', JSON.stringify(channels.slice(0, 150)));
-            } catch (e) {}
-
-            mqttClients.forEach((client) => {
-                if (client && client.connected) {
-                    MQTT_TOPICS.forEach((topic) => {
-                        try { client.publish(topic, payloadStr, { qos: 1, retain: true }); } catch (e) {}
-                    });
-                }
-            });
-
-            if (notifyUser) {
-                showPanelNotice('Señal y lista enviadas a espectadores');
-            }
+            reader.readAsText(file);
         }
 
-        function connectMqtt() {
-            const statusEl = document.getElementById('mqttPanelStatus');
+        function closeExtractorBox() {
+            const box = document.getElementById('m3uExtractorBox');
+            if (box) box.classList.add('hidden');
+        }
+
+        function initPanelMqtt() {
             if (typeof mqtt === 'undefined') return;
-            MQTT_BROKERS.forEach((brokerUrl, i) => {
+            const statusEl = document.getElementById('mqttPanelStatus');
+
+            MQTT_BROKERS.forEach((brokerUrl) => {
                 try {
                     const client = mqtt.connect(brokerUrl, {
-                        clientId: `dnplus_panel_${i}_` + Math.random().toString(16).slice(2, 8),
-                        reconnectPeriod: 3500
+                        clientId: 'dnplus_panel_' + Math.random().toString(16).slice(2, 10),
+                        clean: true,
+                        connectTimeout: 8000,
+                        reconnectPeriod: 4000
                     });
-                    mqttClients.push(client);
+
                     client.on('connect', () => {
                         if (statusEl) {
-                            statusEl.textContent = 'Conectado • Sincronizando 24/7 con espectadores';
+                            statusEl.textContent = 'Conectado en Vivo con Espectadores';
                             statusEl.className = 'text-[11px] text-emerald-400 font-semibold truncate';
                         }
-                        if (channels.length > 0) {
+                        client.subscribe('dnplus/canal5/sync_request');
+                        emitMqttState(false);
+                    });
+
+                    client.on('message', (topic) => {
+                        if (topic === 'dnplus/canal5/sync_request') {
                             emitMqttState(false);
                         }
                     });
+
+                    mqttClients.push(client);
                 } catch (e) {}
             });
         }
 
         window.addEventListener('DOMContentLoaded', () => {
             loadChannels();
-            renderChannelList();
+            setFormCategory('tv');
+            renderSavedChannelsList();
             if (channels.length > 0) {
                 playPreviewAt(0);
             }
-            connectMqtt();
-            // Latido continuo cada 8 segundos para que cualquier espectador nuevo o reconectado reciba la lista siempre
-            setInterval(() => {
-                if (channels.length > 0) {
-                    emitMqttState(false);
-                }
-            }, 8000);
+            initPanelMqtt();
         });
     </script>
 </body>
