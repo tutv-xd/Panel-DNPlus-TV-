@@ -151,6 +151,21 @@
                 </div>
 
                 <div id="savedChannelsList" class="flex flex-col gap-1.5 max-h-72 overflow-y-auto pr-1 custom-scroll"></div>
+            </div>
+        </section>
+
+        <!-- Columna Derecha: Formulario Rápido + Extractor IPTV -->
+        <section class="lg:col-span-6 flex flex-col gap-4">
+
+            <!-- Formulario Agregar Canal / Película / Música / Cultura / Animado -->
+            <form onsubmit="addSingleChannel(event)" class="bg-[#0a1329] border border-blue-900/70 rounded-3xl p-4 flex flex-col gap-3 shadow-xl">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-xs font-black text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus-circle"></i> Agregar y Enviar al Catálogo
+                    </h2>
+                    <span class="text-[10px] text-slate-400">8 Categorías</span>
+                </div>
+
                 <!-- Selector de 8 Categorías para Espectadores y Lista IPTV -->
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                     <button type="button" onclick="setFormCategory('tv')" id="catBtn-tv" class="py-2 px-2 rounded-xl bg-sky-600 text-white text-[11px] font-black flex items-center justify-center gap-1 cursor-pointer transition">
@@ -439,19 +454,29 @@
                 previewVideo.pause();
                 previewVideo.removeAttribute('src');
                 previewVideo.load();
+                previewVideo.muted = false;
+                previewVideo.volume = 1;
 
                 if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
                     previewHls = new Hls({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 15 });
                     previewHls.loadSource(cleanUrl);
                     previewHls.attachMedia(previewVideo);
                     previewHls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        previewVideo.play().catch(() => {});
+                        previewVideo.muted = false;
+                        previewVideo.volume = 1;
+                        previewVideo.play().catch(() => {
+                            previewVideo.muted = true;
+                            previewVideo.play().catch(() => {});
+                        });
                     });
                 } else {
                     previewVideo.src = cleanUrl;
                     previewVideo.loop = (item.category === '247');
                     previewVideo.load();
-                    previewVideo.play().catch(() => {});
+                    previewVideo.play().catch(() => {
+                        previewVideo.muted = true;
+                        previewVideo.play().catch(() => {});
+                    });
                 }
             }
 
