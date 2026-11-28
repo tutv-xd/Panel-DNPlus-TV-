@@ -12,6 +12,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <!-- HLS.js para reproducción .m3u8 -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <!-- mpegts.js para reproducción de enlaces IPTV .ts en vivo -->
+    <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.min.js"></script>
     <!-- MQTT.js para sincronización en tiempo real con espectadores -->
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
@@ -214,7 +216,7 @@
                     id="inputChannelUrl"
                     type="url"
                     required
-                    placeholder="Enlace (.m3u8, .mp4, .mpg o página web de video)"
+                    placeholder="Enlace (.m3u8, .ts, .mp4, .mpg o página web de video)"
                     class="w-full bg-slate-950 border border-slate-800 focus:border-sky-500 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 outline-none"
                 >
 
@@ -317,6 +319,7 @@
         let activePreviewIndex = 0;
         let extractedItems = [];
         let previewHls = null;
+        let previewMpegts = null;
         let isPanelFs = false;
         const mqttClients = [];
         const previewVideo = document.getElementById('previewVideo');
@@ -355,18 +358,40 @@
         }
 
         function loadChannels() {
+            const backupKeys = [
+                PANEL_STORAGE_KEY,
+                'dnplus_viewer_saved_channels_v2',
+                'dnplus_panel_channels_v1',
+                'dnplus_viewer_saved_channels_v1',
+                'dnplus_saved_channels'
+            ];
+            for (let i = 0; i < backupKeys.length; i++) {
+                try {
+                    const raw = localStorage.getItem(backupKeys[i]);
+                    if (!raw) continue;
+                    const parsed = JSON.parse(raw);
+                    const list = Array.isArray(parsed) ? parsed : parsed?.channels;
+                    if (Array.isArray(list) && list.length > 0) {
+                        channels = list
+                            .filter((c) => c && c.url)
+                            .map((c) => ({
+                                title: String(c.title || 'Canal 5'),
+                                url: String(c.url).trim(),
+                                category: PANEL_CATS[c.category] ? c.category : 'tv'
+                            }));
+                        saveChannels();
+                        return;
+                    }
+                } catch (e) {}
+            }
             try {
-                const raw = localStorage.getItem(PANEL_STORAGE_KEY);
-                if (!raw) return;
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) {
-                    channels = parsed
-                        .filter((c) => c && c.url)
-                        .map((c) => ({
-                            title: String(c.title || 'Canal 5'),
-                            url: String(c.url).trim(),
-                            category: PANEL_CATS[c.category] ? c.category : 'tv'
-                        }));
+                const liveSig = localStorage.getItem('dnplus_live_signal');
+                if (liveSig) {
+                    const sigObj = JSON.parse(liveSig);
+                    if (Array.isArray(sigObj?.channels) && sigObj.channels.length > 0) {
+                        channels = sigObj.channels.filter((c) => c && c.url);
+                        saveChannels();
+                    }
                 }
             } catch (e) {}
         }
@@ -424,12 +449,22 @@
                 try { previewHls.destroy(); } catch (e) {}
                 previewHls = null;
             }
+            if (previewMpegts) {
+                try {
+                    previewMpegts.pause();
+                    previewMpegts.unload();
+                    previewMpegts.detachMediaElement();
+                    previewMpegts.destroy();
+                } catch (e) {}
+                previewMpegts = null;
+            }
 
             const cleanUrl = String(item.url || '').trim();
+            const isTs = /\.ts(\?|$)/i.test(cleanUrl) || /\/play\/|\/live\/.*\/\d+$/i.test(cleanUrl);
             const isHls = /\.m3u8(\?|$)/i.test(cleanUrl);
             const isVideoFile = /\.(mp4|mpg|mpeg|webm|ogg|m4v|mov)(\?|$)/i.test(cleanUrl);
 
-            if (!isHls && !isVideoFile) {
+            if (!isTs && !isHls && !isVideoFile) {
                 if (previewVideo) {
                     previewVideo.pause();
                     previewVideo.removeAttribute('src');
@@ -454,29 +489,32 @@
                 previewVideo.pause();
                 previewVideo.removeAttribute('src');
                 previewVideo.load();
-                previewVideo.muted = false;
-                previewVideo.volume = 1;
 
-                if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    previewHls = new Hls({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 15 });
+                if (isTs && typeof mpegts !== 'undefined' && mpegts.getFeatureList().mseLivePlayback) {
+                    previewMpegts = mpegts.createPlayer({
+                        type: 'mpegts',
+                        isLive: true,
+                        url: cleanUrl
+                    }, {
+                        enableWorker: false,
+                        enableStashBuffer: false,
+                        stashInitialSize: 128,
+                        liveBufferLatencyChasing: true
+                    });
+                    previewMpegts.attachMediaElement(previewVideo);
+                    previewMpegts.load();
+                    previewVideo.play().catch(() => {});
+                } else if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+                    previewHls = new Hls({ enableWorker: false });
                     previewHls.loadSource(cleanUrl);
                     previewHls.attachMedia(previewVideo);
                     previewHls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        previewVideo.muted = false;
-                        previewVideo.volume = 1;
-                        previewVideo.play().catch(() => {
-                            previewVideo.muted = true;
-                            previewVideo.play().catch(() => {});
-                        });
+                        previewVideo.play().catch(() => {});
                     });
                 } else {
                     previewVideo.src = cleanUrl;
-                    previewVideo.loop = (item.category === '247');
                     previewVideo.load();
-                    previewVideo.play().catch(() => {
-                        previewVideo.muted = true;
-                        previewVideo.play().catch(() => {});
-                    });
+                    previewVideo.play().catch(() => {});
                 }
             }
 
@@ -484,260 +522,129 @@
         }
 
         function renderSavedChannelsList() {
-            const listEl = document.getElementById('savedChannelsList');
-            const countEl = document.getElementById('savedCountText');
-            if (countEl) countEl.textContent = `${channels.length}`;
-            if (!listEl) return;
+            const container = document.getElementById('savedChannelsList');
+            const countText = document.getElementById('savedCountText');
+            if (countText) countText.textContent = String(channels.length);
+            if (!container) return;
 
-            listEl.innerHTML = '';
             if (!channels.length) {
-                listEl.innerHTML = `
-                    <div class="p-4 rounded-2xl border border-dashed border-slate-800 text-center text-xs text-slate-500">
-                        No hay canales guardados todavía. Agrega uno o sube una lista IPTV.
-                    </div>
-                `;
+                container.innerHTML = '<p class="text-xs text-slate-500 text-center py-4">No hay canales guardados todavía.</p>';
                 return;
             }
 
-            const frag = document.createDocumentFragment();
+            container.innerHTML = '';
             channels.forEach((ch, idx) => {
-                const isCurrent = idx === activePreviewIndex;
-                const catInfo = PANEL_CATS[ch.category] || PANEL_CATS.tv;
+                const meta = PANEL_CATS[ch.category] || PANEL_CATS.tv;
+                const isSelected = idx === activePreviewIndex;
                 const row = document.createElement('div');
-                row.className = `p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
-                    isCurrent
-                        ? 'bg-sky-600/20 border-sky-400 text-white'
-                        : 'bg-slate-950/90 border-slate-800 text-slate-200'
+                row.className = `p-2 rounded-xl border flex items-center justify-between gap-2 ${
+                    isSelected ? 'bg-sky-600/20 border-sky-400' : 'bg-slate-950/80 border-slate-800'
                 }`;
                 row.innerHTML = `
-                    <button type="button" onclick="playPreviewAt(${idx})" class="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer">
-                        <span class="w-7 h-7 rounded-lg ${catInfo.badge} text-white flex items-center justify-center shrink-0">
-                            <i class="fa-solid ${catInfo.icon} text-[11px]"></i>
-                        </span>
-                        <div class="min-w-0 flex-1">
-                            <p class="text-xs font-extrabold truncate">${ch.title}</p>
-                            <p class="text-[10px] text-slate-400 truncate">${catInfo.label}</p>
-                        </div>
+                    <button type="button" onclick="playPreviewAt(${idx})" class="min-w-0 flex-1 text-left flex items-center gap-2 cursor-pointer">
+                        <span class="px-1.5 py-0.5 rounded ${meta.badge} text-white text-[9px] font-black uppercase shrink-0">${meta.label}</span>
+                        <span class="text-xs font-bold text-white truncate">${ch.title}</span>
                     </button>
-                    <button type="button" onclick="deleteSavedChannel(${idx})" title="Borrar este canal" class="px-2.5 py-1.5 rounded-lg bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white text-[11px] font-bold shrink-0 cursor-pointer transition">
-                        Borrar
+                    <button type="button" onclick="deleteSavedChannel(${idx})" class="w-7 h-7 rounded-lg bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white flex items-center justify-center shrink-0 cursor-pointer transition" title="Borrar">
+                        <i class="fa-solid fa-trash text-[11px]"></i>
                     </button>
                 `;
-                frag.appendChild(row);
+                container.appendChild(row);
             });
-            listEl.appendChild(frag);
-        }
-
-        function emitMqttState(notifyUser = false) {
-            const activeItem = channels[activePreviewIndex] || channels[0] || null;
-            const payload = {
-                action: channels.length === 0 ? 'clear_all' : 'sync_playlist',
-                timestamp: Date.now(),
-                title: activeItem ? activeItem.title : '',
-                url: activeItem ? activeItem.url : '',
-                category: activeItem ? activeItem.category : 'tv',
-                channels: channels.slice(0, 200)
-            };
-
-            const jsonStr = JSON.stringify(payload);
-            try {
-                localStorage.setItem('dnplus_live_signal', jsonStr);
-            } catch (e) {}
-
-            mqttClients.forEach((client) => {
-                if (client && client.connected) {
-                    MQTT_TOPICS.forEach((topic) => {
-                        try {
-                            client.publish(topic, jsonStr, { retain: true, qos: 1 });
-                        } catch (e) {}
-                    });
-                }
-            });
-
-            if (notifyUser) {
-                showPanelNotice('Enviado a todos los espectadores', 1800);
-            }
         }
 
         function addSingleChannel(ev) {
             ev.preventDefault();
-            const titleInput = document.getElementById('inputChannelTitle');
-            const urlInput = document.getElementById('inputChannelUrl');
-            const title = String(titleInput?.value || '').trim();
-            const url = String(urlInput?.value || '').trim();
+            const titleEl = document.getElementById('inputChannelTitle');
+            const urlEl = document.getElementById('inputChannelUrl');
+            const title = String(titleEl?.value || '').trim();
+            const url = String(urlEl?.value || '').trim();
             if (!title || !url) return;
 
-            channels.unshift({
-                title,
-                url,
-                category: selectedCategory
-            });
-
-            if (titleInput) titleInput.value = '';
-            if (urlInput) urlInput.value = '';
-
+            channels.unshift({ title, url, category: selectedCategory });
             saveChannels();
+            if (titleEl) titleEl.value = '';
+            if (urlEl) urlEl.value = '';
             playPreviewAt(0);
             emitMqttState(true);
+            showPanelNotice('Canal agregado y enviado en vivo', 2200);
         }
 
         function deleteSavedChannel(idx) {
             channels.splice(idx, 1);
-            if (activePreviewIndex >= channels.length) {
-                activePreviewIndex = Math.max(0, channels.length - 1);
-            }
             saveChannels();
+            if (activePreviewIndex >= channels.length) activePreviewIndex = Math.max(0, channels.length - 1);
             renderSavedChannelsList();
-            if (channels.length > 0) {
-                playPreviewAt(activePreviewIndex);
-            } else {
-                const titleEl = document.getElementById('previewTitle');
-                if (titleEl) titleEl.textContent = 'Sin canal seleccionado';
-                if (previewVideo) {
-                    previewVideo.pause();
-                    previewVideo.removeAttribute('src');
-                    previewVideo.load();
-                }
-            }
-            emitMqttState(true);
+            emitMqttState(false);
         }
 
         function clearAllSavedChannels() {
             channels = [];
-            activePreviewIndex = 0;
             saveChannels();
             renderSavedChannelsList();
-            const titleEl = document.getElementById('previewTitle');
-            if (titleEl) titleEl.textContent = 'Sin canal seleccionado';
-            if (previewVideo) {
-                previewVideo.pause();
-                previewVideo.removeAttribute('src');
-                previewVideo.load();
-            }
-            emitMqttState(true);
-            showPanelNotice('Todos los canales borrados', 1800);
+            const payload = JSON.stringify({ action: 'clear_all', timestamp: Date.now() });
+            try { localStorage.setItem('dnplus_live_signal', payload); } catch (e) {}
+            mqttClients.forEach((c) => {
+                if (c && c.connected) {
+                    MQTT_TOPICS.forEach((t) => c.publish(t, payload, { retain: true }));
+                }
+            });
+            showPanelNotice('Todos los canales borrados', 2000);
         }
 
-        function parseM3uText(rawText) {
-            const lines = String(rawText || '').split(/\r?\n/);
-            const results = [];
+        function parseM3uText(raw) {
+            const lines = String(raw || '').split(/\r?\n/);
+            const result = [];
             let pendingTitle = '';
-
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line) continue;
                 if (line.startsWith('#EXTINF')) {
                     const commaIdx = line.lastIndexOf(',');
-                    pendingTitle = commaIdx !== -1 ? line.slice(commaIdx + 1).trim() : 'Canal IPTV';
-                } else if (/^https?:\/\//i.test(line)) {
-                    results.push({
-                        title: pendingTitle || `Canal ${results.length + 1}`,
-                        url: line
-                    });
+                    pendingTitle = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : 'Canal IPTV';
+                } else if (!line.startsWith('#') && /^https?:\/\//i.test(line)) {
+                    result.push({ title: pendingTitle || `Canal ${result.length + 1}`, url: line });
                     pendingTitle = '';
                 }
             }
-            return results;
+            return result;
         }
 
-        async function resolveRawIptvContent() {
+        async function resolveM3uInput() {
             const raw = String(document.getElementById('iptvRawInput')?.value || '').trim();
-            if (!raw) return '';
+            if (!raw) return [];
             if (/^https?:\/\//i.test(raw) && !raw.includes('\n')) {
                 showPanelNotice('Descargando lista M3U...', 2000);
-                try {
-                    const res = await fetch(raw);
-                    if (res.ok) return await res.text();
-                } catch (e) {}
-                try {
-                    const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(raw)}`);
-                    if (proxyRes.ok) return await proxyRes.text();
-                } catch (e) {}
+                const res = await fetch(raw);
+                const txt = await res.text();
+                return parseM3uText(txt);
             }
-            return raw;
-        }
-
-        async function extractM3uChannels() {
-            const text = await resolveRawIptvContent();
-            extractedItems = parseM3uText(text);
-            const box = document.getElementById('m3uExtractorBox');
-            const countEl = document.getElementById('extractedTotalCount');
-            if (countEl) countEl.textContent = `${extractedItems.length}`;
-            if (box) box.classList.remove('hidden');
-            renderExtractedM3uList();
-        }
-
-        function renderExtractedM3uList() {
-            const listEl = document.getElementById('extractedM3uList');
-            const query = String(document.getElementById('m3uSearchInput')?.value || '').toLowerCase().trim();
-            if (!listEl) return;
-
-            listEl.innerHTML = '';
-            const matches = extractedItems
-                .map((item, idx) => ({ item, idx }))
-                .filter(({ item }) => !query || item.title.toLowerCase().includes(query));
-
-            if (!matches.length) {
-                listEl.innerHTML = `<p class="text-xs text-slate-500 text-center py-3">No se encontraron canales con ese nombre.</p>`;
-                return;
-            }
-
-            const frag = document.createDocumentFragment();
-            matches.slice(0, 120).forEach(({ item, idx }) => {
-                const row = document.createElement('div');
-                row.className = 'p-2 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2';
-                row.innerHTML = `
-                    <span class="text-xs font-bold text-slate-200 truncate flex-1">${item.title}</span>
-                    <button type="button" onclick="addExtractedChannelAt(${idx})" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black shrink-0 cursor-pointer transition">
-                        + Agregar
-                    </button>
-                `;
-                frag.appendChild(row);
-            });
-            listEl.appendChild(frag);
-        }
-
-        function addExtractedChannelAt(idx) {
-            const item = extractedItems[idx];
-            if (!item) return;
-            channels.unshift({
-                title: item.title,
-                url: item.url,
-                category: selectedCategory
-            });
-            saveChannels();
-            playPreviewAt(0);
-            emitMqttState(true);
-        }
-
-        async function importAllIptvChannels() {
-            const text = await resolveRawIptvContent();
-            const parsed = parseM3uText(text);
-            if (!parsed.length) {
-                showPanelNotice('No se encontraron enlaces válidos', 1800);
-                return;
-            }
-            const formatted = parsed.slice(0, 150).map((item) => ({
-                title: item.title,
-                url: item.url,
-                category: selectedCategory
-            }));
-            channels = [...formatted, ...channels];
-            saveChannels();
-            playPreviewAt(0);
-            emitMqttState(true);
+            return parseM3uText(raw);
         }
 
         function handleM3uFileUpload(ev) {
-            const file = ev.target.files?.[0];
+            const file = ev.target?.files?.[0];
             if (!file) return;
             const reader = new FileReader();
-            reader.onload = (e) => {
+            reader.onload = () => {
                 const input = document.getElementById('iptvRawInput');
-                if (input) input.value = String(e.target?.result || '');
+                if (input) input.value = String(reader.result || '');
                 extractM3uChannels();
             };
             reader.readAsText(file);
+        }
+
+        async function extractM3uChannels() {
+            try {
+                extractedItems = await resolveM3uInput();
+                const box = document.getElementById('m3uExtractorBox');
+                const countEl = document.getElementById('extractedTotalCount');
+                if (countEl) countEl.textContent = String(extractedItems.length);
+                if (box) box.classList.remove('hidden');
+                renderExtractedM3uList();
+            } catch (e) {
+                showPanelNotice('No se pudo leer la lista M3U', 2400);
+            }
         }
 
         function closeExtractorBox() {
@@ -745,10 +652,74 @@
             if (box) box.classList.add('hidden');
         }
 
+        function renderExtractedM3uList() {
+            const listEl = document.getElementById('extractedM3uList');
+            const query = String(document.getElementById('m3uSearchInput')?.value || '').toLowerCase();
+            if (!listEl) return;
+            listEl.innerHTML = '';
+
+            extractedItems
+                .filter((item) => !query || item.title.toLowerCase().includes(query))
+                .slice(0, 120)
+                .forEach((item) => {
+                    const row = document.createElement('div');
+                    row.className = 'p-2 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-2';
+                    row.innerHTML = `
+                        <span class="text-xs text-slate-200 font-semibold truncate">${item.title}</span>
+                        <button type="button" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black shrink-0 cursor-pointer">
+                            + Agregar
+                        </button>
+                    `;
+                    row.querySelector('button').onclick = () => {
+                        channels.unshift({ title: item.title, url: item.url, category: selectedCategory });
+                        saveChannels();
+                        playPreviewAt(0);
+                        emitMqttState(true);
+                        showPanelNotice(`Agregado: ${item.title}`, 1800);
+                    };
+                    listEl.appendChild(row);
+                });
+        }
+
+        async function importAllIptvChannels() {
+            try {
+                const items = await resolveM3uInput();
+                if (!items.length) return;
+                const mapped = items.map((it) => ({ title: it.title, url: it.url, category: selectedCategory }));
+                channels = [...mapped, ...channels];
+                saveChannels();
+                playPreviewAt(0);
+                emitMqttState(true);
+                showPanelNotice(`${mapped.length} canales agregados`, 2200);
+            } catch (e) {
+                showPanelNotice('Error al importar lista M3U', 2400);
+            }
+        }
+
+        function emitMqttState(forceAlert = false) {
+            const activeItem = channels[activePreviewIndex] || channels[0] || null;
+            const payloadObj = {
+                url: activeItem ? activeItem.url : '',
+                title: activeItem ? activeItem.title : 'Canal 5',
+                channels,
+                timestamp: Date.now()
+            };
+            const payload = JSON.stringify(payloadObj);
+            try { localStorage.setItem('dnplus_live_signal', payload); } catch (e) {}
+
+            mqttClients.forEach((c) => {
+                if (c && c.connected) {
+                    MQTT_TOPICS.forEach((t) => c.publish(t, payload, { retain: true }));
+                }
+            });
+            if (forceAlert) {
+                showPanelNotice('Señal enviada a todos los espectadores', 2000);
+            }
+        }
+
         function initPanelMqtt() {
             if (typeof mqtt === 'undefined') return;
             const statusEl = document.getElementById('mqttPanelStatus');
-
             MQTT_BROKERS.forEach((brokerUrl) => {
                 try {
                     const client = mqtt.connect(brokerUrl, {
@@ -757,22 +728,18 @@
                         connectTimeout: 8000,
                         reconnectPeriod: 4000
                     });
-
                     client.on('connect', () => {
                         if (statusEl) {
-                            statusEl.textContent = 'Conectado en Vivo con Espectadores';
+                            statusEl.textContent = 'Conectado en Vivo • Listo para Emitir';
                             statusEl.className = 'text-[11px] text-emerald-400 font-semibold truncate';
                         }
                         client.subscribe('dnplus/canal5/sync_request');
-                        emitMqttState(false);
                     });
-
                     client.on('message', (topic) => {
-                        if (topic === 'dnplus/canal5/sync_request') {
+                        if (topic === 'dnplus/canal5/sync_request' && channels.length > 0) {
                             emitMqttState(false);
                         }
                     });
-
                     mqttClients.push(client);
                 } catch (e) {}
             });
