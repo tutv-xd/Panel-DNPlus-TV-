@@ -138,18 +138,28 @@
 
             <!-- Lista de Canales Guardados en el Panel (Con botón Borrar individual y Borrar Todos) -->
             <div class="bg-[#0a1329] border border-blue-900/70 rounded-3xl p-3.5 flex flex-col gap-2.5 shadow-xl">
-                <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
                     <h2 class="text-xs font-black text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
                         <i class="fa-solid fa-list-check"></i> Canales Guardados (<span id="savedCountText">0</span>)
                     </h2>
-                    <button
-                        type="button"
-                        onclick="clearAllSavedChannels()"
-                        class="px-2.5 py-1 rounded-xl bg-red-600/20 hover:bg-red-600 border border-red-500/40 text-red-300 hover:text-white text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition"
-                    >
-                        <i class="fa-solid fa-trash-can"></i>
-                        <span>Borrar Todos</span>
-                    </button>
+                    <div class="flex items-center gap-1.5">
+                        <button
+                            type="button"
+                            onclick="downloadSavedAsM3u()"
+                            class="px-2.5 py-1 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 border border-emerald-500/40 text-emerald-300 hover:text-white text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition"
+                        >
+                            <i class="fa-solid fa-file-arrow-down"></i>
+                            <span>Descargar .M3U</span>
+                        </button>
+                        <button
+                            type="button"
+                            onclick="clearAllSavedChannels()"
+                            class="px-2.5 py-1 rounded-xl bg-red-600/20 hover:bg-red-600 border border-red-500/40 text-red-300 hover:text-white text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition"
+                        >
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>Borrar Todos</span>
+                        </button>
+                    </div>
                 </div>
 
                 <div id="savedChannelsList" class="flex flex-col gap-1.5 max-h-72 overflow-y-auto pr-1 custom-scroll"></div>
@@ -578,6 +588,31 @@
             emitMqttState(false);
         }
 
+        function downloadSavedAsM3u() {
+            if (!channels.length) {
+                showPanelNotice('Agrega al menos un canal para descargar .M3U', 2200);
+                return;
+            }
+            const lines = ['#EXTM3U'];
+            channels.forEach((ch) => {
+                const meta = PANEL_CATS[ch.category] || PANEL_CATS.tv;
+                const safeTitle = String(ch.title || 'Canal 5').replace(/[\r\n,]+/g, ' ').trim();
+                const safeGroup = String(meta.label || 'TV en Vivo').replace(/"/g, '');
+                lines.push(`#EXTINF:-1 tvg-name="${safeTitle}" group-title="${safeGroup}",${safeTitle}`);
+                lines.push(String(ch.url || '').trim());
+            });
+            const blob = new Blob([lines.join('\n') + '\n'], { type: 'audio/x-mpegurl;charset=utf-8' });
+            const downloadUrl = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = 'dnplus-canal5.m3u';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(downloadUrl), 1500);
+            showPanelNotice('Archivo dnplus-canal5.m3u descargado', 2200);
+        }
+
         function clearAllSavedChannels() {
             channels = [];
             saveChannels();
@@ -589,34 +624,59 @@
                     MQTT_TOPICS.forEach((t) => c.publish(t, payload, { retain: true }));
                 }
             });
-            showPanelNotice('Todos los canales borrados', 2000);
+            showPanelNotice('Lista borrada en panel y espectadores', 2200);
         }
 
-        function parseM3uText(raw) {
-            const lines = String(raw || '').split(/\r?\n/);
-            const result = [];
+        function parseM3uText(text) {
+            const lines = String(text || '').split(/\r?\n/);
+            const results = [];
             let pendingTitle = '';
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i].trim();
                 if (!line) continue;
                 if (line.startsWith('#EXTINF')) {
                     const commaIdx = line.lastIndexOf(',');
-                    pendingTitle = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : 'Canal IPTV';
+                    pendingTitle = commaIdx >= 0 ? line.slice(commaIdx + 1).trim() : '';
                 } else if (!line.startsWith('#') && /^https?:\/\//i.test(line)) {
-                    result.push({ title: pendingTitle || `Canal ${result.length + 1}`, url: line });
+                    results.push({
+                        title: pendingTitle || `Canal ${results.length + 1}`,
+                        url: line
+                    });
                     pendingTitle = '';
                 }
             }
-            return result;
+            return results;
+        }
+
+        async function fetchM3uWithCorsFallback(targetUrl) {
+            const proxies = [
+                targetUrl,
+                `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
+                `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
+                `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`
+            ];
+            let lastError = null;
+            for (let i = 0; i < proxies.length; i++) {
+                try {
+                    const res = await fetch(proxies[i]);
+                    if (!res.ok) continue;
+                    const txt = await res.text();
+                    if (txt && (txt.includes('#EXTM3U') || txt.includes('#EXTINF') || /https?:\/\//i.test(txt))) {
+                        return txt;
+                    }
+                } catch (err) {
+                    lastError = err;
+                }
+            }
+            throw lastError || new Error('No se pudo descargar la lista M3U');
         }
 
         async function resolveM3uInput() {
             const raw = String(document.getElementById('iptvRawInput')?.value || '').trim();
             if (!raw) return [];
             if (/^https?:\/\//i.test(raw) && !raw.includes('\n')) {
-                showPanelNotice('Descargando lista M3U...', 2000);
-                const res = await fetch(raw);
-                const txt = await res.text();
+                showPanelNotice('Descargando lista M3U externa...', 3000);
+                const txt = await fetchM3uWithCorsFallback(raw);
                 return parseM3uText(txt);
             }
             return parseM3uText(raw);
