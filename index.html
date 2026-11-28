@@ -650,34 +650,68 @@
 
         async function fetchM3uWithCorsFallback(targetUrl) {
             const proxies = [
-                targetUrl,
-                `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`,
-                `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`,
-                `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`
+                { url: targetUrl, json: false },
+                { url: `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`, json: true },
+                { url: `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`, json: false },
+                { url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(targetUrl)}`, json: false },
+                { url: `https://thingproxy.freeboard.io/fetch/${targetUrl}`, json: false },
+                { url: `https://api.cors.lol/?url=${encodeURIComponent(targetUrl)}`, json: false }
             ];
-            let lastError = null;
+
             for (let i = 0; i < proxies.length; i++) {
                 try {
-                    const res = await fetch(proxies[i]);
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 7000);
+                    const res = await fetch(proxies[i].url, { signal: controller.signal });
+                    clearTimeout(timer);
                     if (!res.ok) continue;
-                    const txt = await res.text();
-                    if (txt && (txt.includes('#EXTM3U') || txt.includes('#EXTINF') || /https?:\/\//i.test(txt))) {
-                        return txt;
+
+                    let txt = '';
+                    if (proxies[i].json) {
+                        const data = await res.json();
+                        txt = String(data?.contents || '');
+                    } else {
+                        txt = await res.text();
                     }
-                } catch (err) {
-                    lastError = err;
-                }
+
+                    const trimmed = txt.trim();
+                    const isHtmlPage = /^<!doctype html|^<html/i.test(trimmed);
+                    if (!isHtmlPage && trimmed && (trimmed.includes('#EXTM3U') || trimmed.includes('#EXTINF'))) {
+                        return trimmed;
+                    }
+                } catch (err) {}
             }
-            throw lastError || new Error('No se pudo descargar la lista M3U');
+            throw new Error('BLOCKED_BY_CLOUDFLARE');
         }
 
         async function resolveM3uInput() {
             const raw = String(document.getElementById('iptvRawInput')?.value || '').trim();
             if (!raw) return [];
             if (/^https?:\/\//i.test(raw) && !raw.includes('\n')) {
-                showPanelNotice('Descargando lista M3U externa...', 3000);
-                const txt = await fetchM3uWithCorsFallback(raw);
-                return parseM3uText(txt);
+                showPanelNotice('Conectando con el servidor M3U...', 4000);
+                try {
+                    const txt = await fetchM3uWithCorsFallback(raw);
+                    return parseM3uText(txt);
+                } catch (err) {
+                    const box = document.getElementById('m3uExtractorBox');
+                    const listEl = document.getElementById('extractedM3uList');
+                    const countEl = document.getElementById('extractedTotalCount');
+                    if (countEl) countEl.textContent = 'Bloqueado por servidor';
+                    if (box) box.classList.remove('hidden');
+                    if (listEl) {
+                        listEl.innerHTML = `
+                            <div class="p-3 rounded-xl bg-amber-500/15 border border-amber-500/40 text-xs text-amber-200 flex flex-col gap-2">
+                                <p class="font-bold">Este servidor bloquea la lectura automática desde la web.</p>
+                                <p class="text-[11px] text-slate-300">1. Toca el botón verde para descargar el archivo <strong>.m3u</strong> a tu dispositivo.<br>2. Luego tócalo en <strong>"Subir .M3U"</strong> arriba a la derecha.</p>
+                                <a href="${raw}" target="_blank" rel="noopener noreferrer" class="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-center flex items-center justify-center gap-1.5">
+                                    <i class="fa-solid fa-download"></i>
+                                    <span>Descargar Archivo .M3U Directo</span>
+                                </a>
+                            </div>
+                        `;
+                    }
+                    throw err;
+                }
             }
             return parseM3uText(raw);
         }
